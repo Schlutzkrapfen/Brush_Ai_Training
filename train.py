@@ -16,7 +16,9 @@ class XrayDataset(Dataset):
             raise FileNotFoundError(f"Image not found: {name}")
         if mask is None:
             raise FileNotFoundError(f"Mask not found: {name}")
-        mask = (mask > 127).astype("float32")
+        mask = cv2.imread(os.path.join(self.root, "masks", name), cv2.IMREAD_GRAYSCALE)
+        # remove: mask = (mask > 127).astype("float32")
+        ...
 
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)  # 1 -> 3 channels for the pretrained encoder
 
@@ -24,7 +26,10 @@ class XrayDataset(Dataset):
             out = self.transform(image=img, mask=mask)
             img, mask = out["image"], out["mask"]
 
-        return img, mask.unsqueeze(0)
+        if mask is None:
+            raise FileNotFoundError(f"Mask not found: {name}")
+
+        return img, mask.long()          # shape [H, W], no unsqueeze
 
 import os, random
 import albumentations as A
@@ -73,17 +78,22 @@ print("Using:", device)
 model = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet",
                  in_channels=3, classes=1).to(device)
 
-dice = smp.losses.DiceLoss(mode="binary")
-bce = torch.nn.BCEWithLogitsLoss()
+dice = smp.losses.DiceLoss(mode="multiclass")
+ce = torch.nn.CrossEntropyLoss()
+
 def loss_fn(pred, target):
-    return dice(pred, target) + bce(pred, target)
+    return dice(pred, target) + ce(pred, target)
 
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
 
 def dice_score(pred, target):
-    pred = (torch.sigmoid(pred) > 0.5).float()
-    inter = (pred * target).sum()
-    return (2 * inter + 1e-6) / (pred.sum() + target.sum() + 1e-6)
+    pred = pred.argmax(1)
+    scores = []
+    for c in range(1, NUM_CLASSES):
+        p, t = (pred == c).float(), (target == c).float()
+        if t.sum() + p.sum() > 0:
+            scores.append(((2 * (p * t).sum() + 1e-6) / (p.sum() + t.sum() + 1e-6)).item())
+    return sum(scores) / max(len(scores), 1)
 
 best = 0
 for epoch in range(150):
@@ -104,7 +114,7 @@ for epoch in range(150):
     with torch.no_grad():
         for img, mask in val_loader:
             img, mask = img.to(device), mask.to(device)
-            val_dice += dice_score(model(img), mask).item()
+            val_dice += dice_score(model(img), mask)
     val_dice /= len(val_loader)
 
     print(f"Epoch {epoch+1}: loss {train_loss/len(train_loader):.4f} | val dice {val_dice:.4f}")
