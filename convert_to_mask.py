@@ -1,7 +1,7 @@
 import json, os, cv2, numpy as np
 from label_studio_converter.brush import decode_rle
 
-CLASSES = ["Caries", "Teeth"]          # <- your label names; background is 0 automatically
+CLASSES = ["Caries", "Teeth","Horizontal Bone loss (to enamel-dentin-border)"]          # <- your label names; background is 0 automatically
 class_id = {name: i + 1 for i, name in enumerate(CLASSES)}
 
 with open("export.json") as f:
