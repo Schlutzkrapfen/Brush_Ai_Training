@@ -35,7 +35,8 @@ from torch.utils.data import DataLoader
 files = sorted(os.listdir("data/images"))
 random.seed(42)
 random.shuffle(files)
-train_files, val_files = files[:8], files[8:]
+n = int(0.8* len(files))
+train_files, val_files = files[:n], files[n:]
 
 # 2. Augmentations (train gets random ones, val only gets resize + normalize)
 train_tf = A.Compose([
@@ -62,3 +63,64 @@ val_loader   = DataLoader(val_ds,   batch_size=1, shuffle=False)
 img, mask = train_ds[0]
 print(img.shape, mask.shape)   # expect: [3, 512, 512] and [1, 512, 512]
 print(mask.unique())           # expect: tensor([0., 1.])
+
+import torch
+import segmentation_models_pytorch as smp
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print("Using:", device)
+
+model = smp.Unet(encoder_name="resnet34", encoder_weights="imagenet",
+                 in_channels=3, classes=1).to(device)
+
+dice = smp.losses.DiceLoss(mode="binary")
+bce = torch.nn.BCEWithLogitsLoss()
+def loss_fn(pred, target):
+    return dice(pred, target) + bce(pred, target)
+
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+
+def dice_score(pred, target):
+    pred = (torch.sigmoid(pred) > 0.5).float()
+    inter = (pred * target).sum()
+    return (2 * inter + 1e-6) / (pred.sum() + target.sum() + 1e-6)
+
+best = 0
+for epoch in range(150):
+    # train
+    model.train()
+    train_loss = 0
+    for img, mask in train_loader:
+        img, mask = img.to(device), mask.to(device)
+        optimizer.zero_grad()
+        loss = loss_fn(model(img), mask)
+        loss.backward()
+        optimizer.step()
+        train_loss += loss.item()
+
+    # validate
+    model.eval()
+    val_dice = 0
+    with torch.no_grad():
+        for img, mask in val_loader:
+            img, mask = img.to(device), mask.to(device)
+            val_dice += dice_score(model(img), mask).item()
+    val_dice /= len(val_loader)
+
+    print(f"Epoch {epoch+1}: loss {train_loss/len(train_loader):.4f} | val dice {val_dice:.4f}")
+
+    if val_dice > best:
+        best = val_dice
+        os.makedirs("outputs", exist_ok=True)
+        torch.save(model.state_dict(), "outputs/best.pth")
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(1, 2, figsize=(11, 4))
+ax[0].plot(history["loss"])
+ax[0].set_title("Train loss")
+ax[0].set_xlabel("Epoch")
+ax[1].plot(history["val_dice"])
+ax[1].set_title("Val dice")
+ax[1].set_xlabel("Epoch")
+plt.tight_layout()
+plt.savefig("outputs/results.png", dpi=150)
