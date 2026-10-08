@@ -177,5 +177,3 @@ ax[1].plot(history["val_dice"]); ax[1].set_title("Val dice (mean over classes)")
 plt.tight_layout()
 plt.savefig("outputs/results.png", dpi=150)
 print(f"Done. Best val dice {best:.4f}. Saved outputs/best.pth and outputs/results.png")
-
-Claude finished the response
