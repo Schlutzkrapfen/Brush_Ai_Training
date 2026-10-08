@@ -1,1 +1,8 @@
-cv2
+torch
+torchvision
+segmentation-models-pytorch
+albumentations
+opencv-python
+numpy
+matplotlib
+label-studio-converter
