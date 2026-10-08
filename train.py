@@ -12,6 +12,10 @@ class XrayDataset(Dataset):
         name = self.files[i]
         img = cv2.imread(os.path.join(self.root, "images", name), cv2.IMREAD_GRAYSCALE)
         mask = cv2.imread(os.path.join(self.root, "masks", name), cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise FileNotFoundError(f"Image not found: {name}")
+        if mask is None:
+            raise FileNotFoundError(f"Mask not found: {name}")
         mask = (mask > 127).astype("float32")
 
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)  # 1 -> 3 channels for the pretrained encoder
